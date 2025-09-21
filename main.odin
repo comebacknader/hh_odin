@@ -10,20 +10,66 @@ import "core:fmt"
 import win "core:sys/windows"
 import "base:runtime"
 
+// TODO: This is a global for now.
+running: bool
 operation: win.DWORD = win.WHITENESS
+bitmap_info: win.BITMAPINFO
+bitmap_memory: ^rawptr 
+bitmap_handle: win.HBITMAP
+bitmap_device_context: win.HDC
+
+win32_resize_dib_section :: proc(width, height: i32) {
+
+    // TODO: Bulletproof this
+    // Maybe don't free first, free after, then free first if that fails. 
+
+    // TODO: Free our DIBSection
+
+    if bitmap_handle != nil {
+         win.DeleteObject(win.HGDIOBJ(bitmap_handle))
+    } else {
+        bitmap_device_context = win.CreateCompatibleDC(nil)
+    }
+
+    bitmap_info.bmiHeader.biSize = size_of(bitmap_info.bmiHeader)
+    bitmap_info.bmiHeader.biWidth = width
+    bitmap_info.bmiHeader.biHeight = height
+    bitmap_info.bmiHeader.biPlanes = 1
+    bitmap_info.bmiHeader.biBitCount = 32
+    bitmap_info.bmiHeader.biCompression = win.BI_RGB
+
+    bitmap_handle = win.CreateDIBSection(
+        bitmap_device_context, &bitmap_info,
+        win.DIB_RGB_COLORS, &bitmap_memory, 
+        nil, 0)
+}
+
+win32_update_window :: proc(device_context: win.HDC, x, y, width, height: i32) {
+    win.StretchDIBits(device_context, 
+        x, y, width, height, 
+        x, y, width, height, 
+        bitmap_memory, &bitmap_info, 
+        win.DIB_RGB_COLORS, win.SRCCOPY)
+}
 
 main_window_callback :: proc "stdcall" (window: win.HWND, message: win.UINT, w_param: win.WPARAM , l_param: win.LPARAM) -> win.LRESULT {
     result: win.LRESULT
     context = runtime.default_context()
     switch message {
         case win.WM_SIZE:
-            fmt.println("WM_SIZE")
+            client_rect: win.RECT
+            win.GetClientRect(window, &client_rect)
+            width: i32 = client_rect.right - client_rect.left
+            height: i32 = client_rect.bottom - client_rect.top
+            win32_resize_dib_section(width, height)
             break
         case win.WM_DESTROY:
-            fmt.println("WM_DESTROY")
+            // TODO: Handle this as an error - recreate window?
+            running = false
             break
         case win.WM_CLOSE:
-            fmt.println("WM_CLOSE")
+            // TODO: Handle this with a message to the user?
+            running = false
             break
         case win.WM_ACTIVATEAPP:
             fmt.println("WM_ACTIVATEAPP")
@@ -36,12 +82,7 @@ main_window_callback :: proc "stdcall" (window: win.HWND, message: win.UINT, w_p
             y: i32 = paint.rcPaint.top
             height: i32 = paint.rcPaint.bottom - paint.rcPaint.top
             width: i32 = paint.rcPaint.right - paint.rcPaint.left
-            win.PatBlt(device_context, x, y, width, height, operation)
-            if operation == win.WHITENESS {
-                operation = win.BLACKNESS
-            } else {
-                operation = win.WHITENESS
-            }
+            win32_update_window(device_context, x, y, width, height)
             win.EndPaint(window, &paint)
             break
         case:
@@ -57,8 +98,6 @@ main :: proc() {
 
     window_class: win.WNDCLASSW
     
-    // TODO: Check if HREDRAW/VREDRAW/OWNDC still matter
-    window_class.style = win.CS_OWNDC | win.CS_HREDRAW | win.CS_VREDRAW
     window_class.lpfnWndProc = main_window_callback
     window_class.hInstance = instance 
     window_class.lpszClassName = win.L("HandmadeHeroWindowClass")
@@ -79,11 +118,13 @@ main :: proc() {
         return
     }
 
-    message: win.MSG
-    for {
+    running = true
+
+    for running {
+        message: win.MSG
         message_result: win.INT32 = win.GetMessageW(&message, nil, 0, 0) 
         if message_result > 0 {
-            win.TranslateMessage(&message) 
+            win.TranslateMessage(&message)
             win.DispatchMessageW(&message)
         } else {
             break
