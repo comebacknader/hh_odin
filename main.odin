@@ -14,21 +14,16 @@ import "base:runtime"
 running: bool
 operation: win.DWORD = win.WHITENESS
 bitmap_info: win.BITMAPINFO
-bitmap_memory: ^rawptr 
+bitmap_memory: rawptr 
 bitmap_handle: win.HBITMAP
-bitmap_device_context: win.HDC
 
 win32_resize_dib_section :: proc(width, height: i32) {
 
     // TODO: Bulletproof this
     // Maybe don't free first, free after, then free first if that fails. 
 
-    // TODO: Free our DIBSection
-
-    if bitmap_handle != nil {
-         win.DeleteObject(win.HGDIOBJ(bitmap_handle))
-    } else {
-        bitmap_device_context = win.CreateCompatibleDC(nil)
+    if bitmap_memory != nil {
+        win.VirtualFree(bitmap_memory, 0, win.MEM_RELEASE)
     }
 
     bitmap_info.bmiHeader.biSize = size_of(bitmap_info.bmiHeader)
@@ -38,10 +33,10 @@ win32_resize_dib_section :: proc(width, height: i32) {
     bitmap_info.bmiHeader.biBitCount = 32
     bitmap_info.bmiHeader.biCompression = win.BI_RGB
 
-    bitmap_handle = win.CreateDIBSection(
-        bitmap_device_context, &bitmap_info,
-        win.DIB_RGB_COLORS, &bitmap_memory, 
-        nil, 0)
+    bytes_per_pixel: uint = 4
+    bitmap_memory_size: uint = uint(width*height)*bytes_per_pixel
+    bitmap_memory = win.VirtualAlloc(nil, bitmap_memory_size, win.MEM_COMMIT, win.PAGE_READWRITE)
+    
 }
 
 win32_update_window :: proc(device_context: win.HDC, x, y, width, height: i32) {
