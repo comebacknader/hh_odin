@@ -2,6 +2,8 @@
 
 NOTE: Casey Murator's Handmade Hero educational clone written in Odin by Nader Carun for educational purposes only. 
 
+Current Lesson: Day 004
+
 */
 
 package main
@@ -12,13 +14,17 @@ import "base:runtime"
 
 // TODO: This is a global for now.
 running: bool
+
 operation: win.DWORD = win.WHITENESS
 bitmap_info: win.BITMAPINFO
 bitmap_memory: rawptr 
-bitmap_handle: win.HBITMAP
+bitmap_width, bitmap_height: i32 
 
+/* 
+    [Definition] DIB: Device Independent Bitmap --> the name that Window uses to talk about things
+    that you can write into that you can then display using GDI (Graphics Device Interface)
+*/
 win32_resize_dib_section :: proc(width, height: i32) {
-
     // TODO: Bulletproof this
     // Maybe don't free first, free after, then free first if that fails. 
 
@@ -26,28 +32,52 @@ win32_resize_dib_section :: proc(width, height: i32) {
         win.VirtualFree(bitmap_memory, 0, win.MEM_RELEASE)
     }
 
+    bitmap_width = width
+    bitmap_height = height 
+
     bitmap_info.bmiHeader.biSize = size_of(bitmap_info.bmiHeader)
     bitmap_info.bmiHeader.biWidth = width
     bitmap_info.bmiHeader.biHeight = height
     bitmap_info.bmiHeader.biPlanes = 1
-    bitmap_info.bmiHeader.biBitCount = 32
+    bitmap_info.bmiHeader.biBitCount = 32 // getting 32 because of DWORD alignment instead of 24 (8 bits for Red, 8 bits for Green, 8 bits for Blue)
     bitmap_info.bmiHeader.biCompression = win.BI_RGB
 
     bytes_per_pixel: uint = 4
-    bitmap_memory_size: uint = uint(width*height)*bytes_per_pixel
+    bitmap_memory_size: uint = uint(bitmap_width*bitmap_height)*bytes_per_pixel
     bitmap_memory = win.VirtualAlloc(nil, bitmap_memory_size, win.MEM_COMMIT, win.PAGE_READWRITE)
+
+    row: ^u8 = cast(^u8)bitmap_memory
+    for y: i32 = 0; y < bitmap_height; y += 1 {
+        for x: i32 = 0; x < bitmap_width; x += 1 {
+
+        }
+    }
     
 }
 
-win32_update_window :: proc(device_context: win.HDC, x, y, width, height: i32) {
+win32_update_window :: proc(
+    device_context: win.HDC, window_rect: ^win.RECT, 
+    x, y, width, height: i32
+) {
+    window_width: i32 = window_rect.right - window_rect.left
+    window_height: i32 = window_rect.bottom - window_rect.top
+
+    // StretchDIBits: Takes our DIB section and it "blits" it, and allows us to scale it to the size of the window
+    // [Definition] BLIT (aka BitBLT) --> bit-block transfer, copying a rectangular block of pixel data from one part
+    // of memory to another.
     win.StretchDIBits(device_context, 
-        x, y, width, height, 
-        x, y, width, height, 
+        // x, y, width, height, 
+        // x, y, width, height, 
+        0, 0, bitmap_width, bitmap_height,
+        0, 0, window_width, window_height,
         bitmap_memory, &bitmap_info, 
         win.DIB_RGB_COLORS, win.SRCCOPY)
 }
 
-main_window_callback :: proc "stdcall" (window: win.HWND, message: win.UINT, w_param: win.WPARAM , l_param: win.LPARAM) -> win.LRESULT {
+main_window_callback :: proc "stdcall" (
+    window: win.HWND, message: win.UINT, 
+    w_param: win.WPARAM , l_param: win.LPARAM
+) -> win.LRESULT {
     result: win.LRESULT
     context = runtime.default_context()
     switch message {
@@ -77,7 +107,11 @@ main_window_callback :: proc "stdcall" (window: win.HWND, message: win.UINT, w_p
             y: i32 = paint.rcPaint.top
             height: i32 = paint.rcPaint.bottom - paint.rcPaint.top
             width: i32 = paint.rcPaint.right - paint.rcPaint.left
-            win32_update_window(device_context, x, y, width, height)
+            
+            client_rect: win.RECT
+            win.GetClientRect(window, &client_rect)
+
+            win32_update_window(device_context, &client_rect, x, y, width, height)
             win.EndPaint(window, &paint)
             break
         case:
@@ -102,7 +136,7 @@ main :: proc() {
         return
     }
 
-    window_handle: win.HWND  = win.CreateWindowExW(0,window_class.lpszClassName, win.L("Handmade Hero"), 
+    window_handle: win.HWND = win.CreateWindowExW(0, window_class.lpszClassName, win.L("Handmade Hero"), 
         win.WS_OVERLAPPEDWINDOW|win.WS_VISIBLE, 
         win.CW_USEDEFAULT, win.CW_USEDEFAULT, 
         win.CW_USEDEFAULT, win.CW_USEDEFAULT, 
@@ -129,6 +163,6 @@ main :: proc() {
 
 
 
-    fmt.println("Game over")
+    fmt.println("Game Exiting")
 }
 
