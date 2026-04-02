@@ -75,15 +75,15 @@ win32_resize_dib_section :: proc(width, height: i32) {
     bitmap_memory_size: uint = uint((bitmap_width*bitmap_height)*bytes_per_pixel)
     bitmap_memory = win.VirtualAlloc(nil, uint(bitmap_memory_size), win.MEM_COMMIT, win.PAGE_READWRITE)
      
-    render_weird_gradient(0, 0)
+    // TODO(Nader): Probably want to clear this to black
 }
 
 win32_update_window :: proc(
-    device_context: win.HDC, window_rect: ^win.RECT, 
+    device_context: win.HDC, client_rect: ^win.RECT, 
     x, y, width, height: i32
 ) {
-    window_width: i32 = window_rect.right - window_rect.left
-    window_height: i32 = window_rect.bottom - window_rect.top
+    window_width: i32 = client_rect.right - client_rect.left
+    window_height: i32 = client_rect.bottom - client_rect.top
 
     // StretchDIBits: Takes our DIB section and it "blits" it, and allows us to scale it to the size of the window
     // [Definition] BLIT (aka BitBLT) --> bit-block transfer, copying a rectangular block of pixel data from one part
@@ -157,19 +157,21 @@ main :: proc() {
         return
     }
 
-    window_handle: win.HWND = win.CreateWindowExW(0, window_class.lpszClassName, win.L("Handmade Hero"), 
+    window: win.HWND = win.CreateWindowExW(0, window_class.lpszClassName, win.L("Handmade Hero"), 
         win.WS_OVERLAPPEDWINDOW|win.WS_VISIBLE, 
         win.CW_USEDEFAULT, win.CW_USEDEFAULT, 
         win.CW_USEDEFAULT, win.CW_USEDEFAULT, 
         nil, nil, instance, nil)
 
-    if window_handle == nil {
+    if window == nil {
         fmt.println("Failed to create window")
         return
     }
 
     running = true
 
+    x_offset: i32 = 0
+    y_offset: i32 = 0
     for running {
         message: win.MSG
         for win.PeekMessageW(&message, nil, 0, 0, win.PM_REMOVE) {
@@ -179,6 +181,17 @@ main :: proc() {
             win.TranslateMessage(&message)
             win.DispatchMessageW(&message)
         }
+        render_weird_gradient(x_offset, y_offset)
+        device_context: win.HDC = win.GetDC(window)
+        client_rect: win.RECT
+
+        win.GetClientRect(window,  &client_rect)
+        window_width: i32 = client_rect.right - client_rect.left
+        window_height: i32 = client_rect.right - client_rect.left
+        win32_update_window(device_context, &client_rect, 0, 0, window_width, window_height)
+        win.ReleaseDC(window, device_context)
+
+        x_offset = x_offset + 1;
     }
 
 
