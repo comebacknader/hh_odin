@@ -11,6 +11,7 @@ package main
 import "core:fmt"
 import win "core:sys/windows"
 import "base:runtime"
+import "core:mem"
 
 // TODO: This is a global for now.
 running: bool
@@ -19,6 +20,35 @@ operation: win.DWORD = win.WHITENESS
 bitmap_info: win.BITMAPINFO
 bitmap_memory: rawptr 
 bitmap_width, bitmap_height: i32 
+bytes_per_pixel: i32 = 4
+
+render_weird_gradient :: proc(x_offset, y_offset: i32) {
+    width, height: i32 = bitmap_width, bitmap_height
+    pitch: int = int(width*bytes_per_pixel)
+    row: [^]u8 = cast([^]u8)bitmap_memory
+    for y: i32 = 0; y < bitmap_height; y += 1 {
+        pixel: ^u32 = (^u32)(row)
+        for x: i32 = 0; x < bitmap_width; x += 1 {
+            pixel_color_value: ^u8 = (^u8)(pixel)
+
+            pixel_color_value^ = u8(x + x_offset)
+            pixel_color_value = mem.ptr_offset(pixel_color_value, 1)
+
+            pixel_color_value^ = u8(y + y_offset)
+            pixel_color_value = mem.ptr_offset(pixel_color_value, 1)
+
+            pixel_color_value^ = 0
+            pixel_color_value = mem.ptr_offset(pixel_color_value, 1)
+
+            pixel_color_value^ = 0
+            pixel_color_value = mem.ptr_offset(pixel_color_value, 1)
+
+            pixel = mem.ptr_offset(pixel, 1)
+        }
+
+        row = mem.ptr_offset(row, pitch)
+    }
+}
 
 /* 
     [Definition] DIB: Device Independent Bitmap --> the name that Window uses to talk about things
@@ -36,23 +66,16 @@ win32_resize_dib_section :: proc(width, height: i32) {
     bitmap_height = height 
 
     bitmap_info.bmiHeader.biSize = size_of(bitmap_info.bmiHeader)
-    bitmap_info.bmiHeader.biWidth = width
-    bitmap_info.bmiHeader.biHeight = height
+    bitmap_info.bmiHeader.biWidth = bitmap_width
+    bitmap_info.bmiHeader.biHeight = -bitmap_height
     bitmap_info.bmiHeader.biPlanes = 1
     bitmap_info.bmiHeader.biBitCount = 32 // getting 32 because of DWORD alignment instead of 24 (8 bits for Red, 8 bits for Green, 8 bits for Blue)
     bitmap_info.bmiHeader.biCompression = win.BI_RGB
 
-    bytes_per_pixel: uint = 4
-    bitmap_memory_size: uint = uint(bitmap_width*bitmap_height)*bytes_per_pixel
-    bitmap_memory = win.VirtualAlloc(nil, bitmap_memory_size, win.MEM_COMMIT, win.PAGE_READWRITE)
-
-    row: ^u8 = cast(^u8)bitmap_memory
-    for y: i32 = 0; y < bitmap_height; y += 1 {
-        for x: i32 = 0; x < bitmap_width; x += 1 {
-
-        }
-    }
-    
+    bitmap_memory_size: uint = uint((bitmap_width*bitmap_height)*bytes_per_pixel)
+    bitmap_memory = win.VirtualAlloc(nil, uint(bitmap_memory_size), win.MEM_COMMIT, win.PAGE_READWRITE)
+     
+    render_weird_gradient(0, 0)
 }
 
 win32_update_window :: proc(
@@ -66,8 +89,6 @@ win32_update_window :: proc(
     // [Definition] BLIT (aka BitBLT) --> bit-block transfer, copying a rectangular block of pixel data from one part
     // of memory to another.
     win.StretchDIBits(device_context, 
-        // x, y, width, height, 
-        // x, y, width, height, 
         0, 0, bitmap_width, bitmap_height,
         0, 0, window_width, window_height,
         bitmap_memory, &bitmap_info, 
@@ -151,14 +172,13 @@ main :: proc() {
 
     for running {
         message: win.MSG
-        message_result: win.INT32 = win.GetMessageW(&message, nil, 0, 0) 
-        if message_result > 0 {
+        for win.PeekMessageW(&message, nil, 0, 0, win.PM_REMOVE) {
+            if message.message == win.WM_QUIT {
+                running = false
+            }
             win.TranslateMessage(&message)
             win.DispatchMessageW(&message)
-        } else {
-            break
         }
-
     }
 
 
