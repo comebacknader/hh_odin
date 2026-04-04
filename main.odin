@@ -26,22 +26,15 @@ render_weird_gradient :: proc(x_offset, y_offset: i32) {
     width, height: i32 = bitmap_width, bitmap_height
     pitch: int = int(width*bytes_per_pixel)
     row: [^]u8 = cast([^]u8)bitmap_memory
-    for y: i32 = 0; y < bitmap_height; y += 1 {
-        pixel: ^u32 = (^u32)(row)
-        for x: i32 = 0; x < bitmap_width; x += 1 {
-            pixel_color_value: ^u8 = (^u8)(pixel)
+    for y: i32 = 0; y < bitmap_height; y += 1 
+    {
+        pixel := (^u32)(row)
+        for x: i32 = 0; x < bitmap_width; x += 1 
+        {
+            blue := u8(x + x_offset)
+            green := u8(y + y_offset)
 
-            pixel_color_value^ = u8(x + x_offset)
-            pixel_color_value = mem.ptr_offset(pixel_color_value, 1)
-
-            pixel_color_value^ = u8(y + y_offset)
-            pixel_color_value = mem.ptr_offset(pixel_color_value, 1)
-
-            pixel_color_value^ = 0
-            pixel_color_value = mem.ptr_offset(pixel_color_value, 1)
-
-            pixel_color_value^ = 0
-            pixel_color_value = mem.ptr_offset(pixel_color_value, 1)
+            pixel^ = (u32(green) << 8) | u32(blue)
 
             pixel = mem.ptr_offset(pixel, 1)
         }
@@ -58,7 +51,8 @@ win32_resize_dib_section :: proc(width, height: i32) {
     // TODO: Bulletproof this
     // Maybe don't free first, free after, then free first if that fails. 
 
-    if bitmap_memory != nil {
+    if bitmap_memory != nil 
+    {
         win.VirtualFree(bitmap_memory, 0, win.MEM_RELEASE)
     }
 
