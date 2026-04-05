@@ -16,30 +16,35 @@ import "core:mem"
 // TODO: This is a global for now.
 running: bool
 
-operation: win.DWORD = win.WHITENESS
-bitmap_info: win.BITMAPINFO
-bitmap_memory: rawptr 
-bitmap_width, bitmap_height: i32 
-bytes_per_pixel: i32 = 4
+Win32_Offscreen_Buffer:: struct {
+    info: win.BITMAPINFO,
+    memory: rawptr,
+    width, height: i32,
+    pitch: i32,
+    bytes_per_pixel: i32
+}
 
-render_weird_gradient :: proc(x_offset, y_offset: i32) {
-    width, height: i32 = bitmap_width, bitmap_height
-    pitch: int = int(width*bytes_per_pixel)
-    row: [^]u8 = cast([^]u8)bitmap_memory
-    for y: i32 = 0; y < bitmap_height; y += 1 
+global_back_buffer: Win32_Offscreen_Buffer
+
+render_weird_gradient :: proc(buffer: Win32_Offscreen_Buffer, blue_offset, green_offset: i32) {
+    // TODO(Nader): Let's see what the optimizer does
+    width, height: i32 = buffer.width, buffer.height 
+    pitch: int = int(width*buffer.bytes_per_pixel)
+    row: [^]u8 = cast([^]u8)buffer.memory
+    for y: i32 = 0; y < buffer.height; y += 1 
     {
         pixel := (^u32)(row)
-        for x: i32 = 0; x < bitmap_width; x += 1 
+        for x: i32 = 0; x < buffer.width; x += 1 
         {
-            blue := u8(x + x_offset)
-            green := u8(y + y_offset)
+            blue := u8(x + blue_offset)
+            green := u8(y + green_offset)
 
             pixel^ = (u32(green) << 8) | u32(blue)
 
             pixel = mem.ptr_offset(pixel, 1)
         }
 
-        row = mem.ptr_offset(row, pitch)
+        row = mem.ptr_offset(row, buffer.pitch)
     }
 }
 
@@ -47,33 +52,37 @@ render_weird_gradient :: proc(x_offset, y_offset: i32) {
     [Definition] DIB: Device Independent Bitmap --> the name that Window uses to talk about things
     that you can write into that you can then display using GDI (Graphics Device Interface)
 */
-win32_resize_dib_section :: proc(width, height: i32) {
+win32_resize_dib_section :: proc(buffer: ^Win32_Offscreen_Buffer, width, height: i32) {
     // TODO: Bulletproof this
     // Maybe don't free first, free after, then free first if that fails. 
 
-    if bitmap_memory != nil 
+    if buffer.memory != nil 
     {
-        win.VirtualFree(bitmap_memory, 0, win.MEM_RELEASE)
+        win.VirtualFree(buffer.memory, 0, win.MEM_RELEASE)
     }
 
-    bitmap_width = width
-    bitmap_height = height 
+    buffer.width = width
+    buffer.height = height 
+    buffer.bytes_per_pixel = 4
 
-    bitmap_info.bmiHeader.biSize = size_of(bitmap_info.bmiHeader)
-    bitmap_info.bmiHeader.biWidth = bitmap_width
-    bitmap_info.bmiHeader.biHeight = -bitmap_height
-    bitmap_info.bmiHeader.biPlanes = 1
-    bitmap_info.bmiHeader.biBitCount = 32 // getting 32 because of DWORD alignment instead of 24 (8 bits for Red, 8 bits for Green, 8 bits for Blue)
-    bitmap_info.bmiHeader.biCompression = win.BI_RGB
+    buffer.info.bmiHeader.biSize = size_of(buffer.info.bmiHeader)
+    buffer.info.bmiHeader.biWidth = buffer.width
+    buffer.info.bmiHeader.biHeight = -buffer.height // "-" value means from top to bottom
+    buffer.info.bmiHeader.biPlanes = 1
+    buffer.info.bmiHeader.biBitCount = 32 // getting 32 because of DWORD alignment instead of 24 (8 bits for Red, 8 bits for Green, 8 bits for Blue)
+    buffer.info.bmiHeader.biCompression = win.BI_RGB
 
-    bitmap_memory_size: uint = uint((bitmap_width*bitmap_height)*bytes_per_pixel)
-    bitmap_memory = win.VirtualAlloc(nil, uint(bitmap_memory_size), win.MEM_COMMIT, win.PAGE_READWRITE)
+    bitmap_memory_size: uint = uint((buffer.width*buffer.height)*buffer.bytes_per_pixel)
+    buffer.memory = win.VirtualAlloc(nil, uint(bitmap_memory_size), win.MEM_COMMIT, win.PAGE_READWRITE)
+
+    buffer.pitch = width*buffer.bytes_per_pixel
      
     // TODO(Nader): Probably want to clear this to black
 }
 
-win32_update_window :: proc(
-    device_context: win.HDC, client_rect: ^win.RECT, 
+win32_display_buffer_in_window :: proc(
+    device_context: win.HDC, client_rect: win.RECT, 
+    buffer: ^Win32_Offscreen_Buffer,
     x, y, width, height: i32
 ) {
     window_width: i32 = client_rect.right - client_rect.left
@@ -83,9 +92,9 @@ win32_update_window :: proc(
     // [Definition] BLIT (aka BitBLT) --> bit-block transfer, copying a rectangular block of pixel data from one part
     // of memory to another.
     win.StretchDIBits(device_context, 
-        0, 0, bitmap_width, bitmap_height,
+        0, 0, buffer.width, buffer.height,
         0, 0, window_width, window_height,
-        bitmap_memory, &bitmap_info, 
+        buffer.memory, &buffer.info, 
         win.DIB_RGB_COLORS, win.SRCCOPY)
 }
 
@@ -101,7 +110,7 @@ main_window_callback :: proc "stdcall" (
             win.GetClientRect(window, &client_rect)
             width: i32 = client_rect.right - client_rect.left
             height: i32 = client_rect.bottom - client_rect.top
-            win32_resize_dib_section(width, height)
+            win32_resize_dib_section(&global_back_buffer, width, height)
             break
         case win.WM_DESTROY:
             // TODO: Handle this as an error - recreate window?
@@ -126,7 +135,8 @@ main_window_callback :: proc "stdcall" (
             client_rect: win.RECT
             win.GetClientRect(window, &client_rect)
 
-            win32_update_window(device_context, &client_rect, x, y, width, height)
+            win32_display_buffer_in_window(device_context, client_rect, &global_back_buffer, 
+                x, y, width, height)
             win.EndPaint(window, &paint)
             break
         case:
@@ -142,6 +152,7 @@ main :: proc() {
 
     window_class: win.WNDCLASSW
     
+    window_class.style = win.CS_HREDRAW|win.CS_VREDRAW
     window_class.lpfnWndProc = main_window_callback
     window_class.hInstance = instance 
     window_class.lpszClassName = win.L("HandmadeHeroWindowClass")
@@ -162,10 +173,10 @@ main :: proc() {
         return
     }
 
-    running = true
-
     x_offset: i32 = 0
     y_offset: i32 = 0
+
+    running = true
     for running {
         message: win.MSG
         for win.PeekMessageW(&message, nil, 0, 0, win.PM_REMOVE) {
@@ -175,20 +186,20 @@ main :: proc() {
             win.TranslateMessage(&message)
             win.DispatchMessageW(&message)
         }
-        render_weird_gradient(x_offset, y_offset)
+        render_weird_gradient(global_back_buffer, x_offset, y_offset)
         device_context: win.HDC = win.GetDC(window)
         client_rect: win.RECT
 
         win.GetClientRect(window,  &client_rect)
         window_width: i32 = client_rect.right - client_rect.left
         window_height: i32 = client_rect.right - client_rect.left
-        win32_update_window(device_context, &client_rect, 0, 0, window_width, window_height)
+        win32_display_buffer_in_window(device_context, client_rect, 
+            &global_back_buffer, 0, 0, window_width, window_height)
         win.ReleaseDC(window, device_context)
 
-        x_offset = x_offset + 1;
+        x_offset = x_offset + 1
+        y_offset += 1
     }
-
-
 
     fmt.println("Game Exiting")
 }
