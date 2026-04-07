@@ -26,6 +26,20 @@ Win32_Offscreen_Buffer:: struct {
 
 global_back_buffer: Win32_Offscreen_Buffer
 
+Win32_Window_Dimension :: struct {
+    width: i32,
+    height: i32 
+}
+
+get_window_dimension :: proc(window: win.HWND) -> Win32_Window_Dimension {
+    result: Win32_Window_Dimension
+    client_rect: win.RECT
+    win.GetClientRect(window, &client_rect)
+    result.width = client_rect.right - client_rect.left
+    result.height = client_rect.bottom - client_rect.top
+    return result
+}
+
 render_weird_gradient :: proc(buffer: Win32_Offscreen_Buffer, blue_offset, green_offset: i32) {
     // TODO(Nader): Let's see what the optimizer does
     width, height: i32 = buffer.width, buffer.height 
@@ -106,11 +120,8 @@ main_window_callback :: proc "stdcall" (
     context = runtime.default_context()
     switch message {
         case win.WM_SIZE:
-            client_rect: win.RECT
-            win.GetClientRect(window, &client_rect)
-            width: i32 = client_rect.right - client_rect.left
-            height: i32 = client_rect.bottom - client_rect.top
-            win32_resize_dib_section(&global_back_buffer, width, height)
+            window_dimension: Win32_Window_Dimension = get_window_dimension(window)
+            win32_resize_dib_section(&global_back_buffer, window_dimension.width, window_dimension.height)
             break
         case win.WM_DESTROY:
             // TODO: Handle this as an error - recreate window?
