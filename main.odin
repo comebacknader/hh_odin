@@ -2,7 +2,7 @@
 
 NOTE: Casey Murator's Handmade Hero educational clone written in Odin by Nader Carun for educational purposes only. 
 
-Current Lesson: Day 004
+Current Lesson: Day 005
 
 */
 
@@ -31,7 +31,7 @@ Win32_Window_Dimension :: struct {
     height: i32 
 }
 
-get_window_dimension :: proc(window: win.HWND) -> Win32_Window_Dimension {
+win32_get_window_dimension :: proc(window: win.HWND) -> Win32_Window_Dimension {
     result: Win32_Window_Dimension
     client_rect: win.RECT
     win.GetClientRect(window, &client_rect)
@@ -95,19 +95,17 @@ win32_resize_dib_section :: proc(buffer: ^Win32_Offscreen_Buffer, width, height:
 }
 
 win32_display_buffer_in_window :: proc(
-    device_context: win.HDC, client_rect: win.RECT, 
+    device_context: win.HDC, window_width, window_height: i32, 
     buffer: ^Win32_Offscreen_Buffer,
     x, y, width, height: i32
 ) {
-    window_width: i32 = client_rect.right - client_rect.left
-    window_height: i32 = client_rect.bottom - client_rect.top
-
     // StretchDIBits: Takes our DIB section and it "blits" it, and allows us to scale it to the size of the window
     // [Definition] BLIT (aka BitBLT) --> bit-block transfer, copying a rectangular block of pixel data from one part
     // of memory to another.
+    // TODO(Nader): Aspect ratio correction
     win.StretchDIBits(device_context, 
-        0, 0, buffer.width, buffer.height,
         0, 0, window_width, window_height,
+        0, 0, buffer.width, buffer.height,
         buffer.memory, &buffer.info, 
         win.DIB_RGB_COLORS, win.SRCCOPY)
 }
@@ -120,8 +118,6 @@ main_window_callback :: proc "stdcall" (
     context = runtime.default_context()
     switch message {
         case win.WM_SIZE:
-            window_dimension: Win32_Window_Dimension = get_window_dimension(window)
-            win32_resize_dib_section(&global_back_buffer, window_dimension.width, window_dimension.height)
             break
         case win.WM_DESTROY:
             // TODO: Handle this as an error - recreate window?
@@ -143,11 +139,10 @@ main_window_callback :: proc "stdcall" (
             height: i32 = paint.rcPaint.bottom - paint.rcPaint.top
             width: i32 = paint.rcPaint.right - paint.rcPaint.left
             
-            client_rect: win.RECT
-            win.GetClientRect(window, &client_rect)
+            dimension: Win32_Window_Dimension = win32_get_window_dimension(window)
 
-            win32_display_buffer_in_window(device_context, client_rect, &global_back_buffer, 
-                x, y, width, height)
+            win32_display_buffer_in_window(device_context, dimension.width, dimension.height, 
+                &global_back_buffer,  x, y, width, height)
             win.EndPaint(window, &paint)
             break
         case:
@@ -162,6 +157,8 @@ main :: proc() {
     instance := win.HINSTANCE(win.GetModuleHandleW(nil))
 
     window_class: win.WNDCLASSW
+
+    win32_resize_dib_section(&global_back_buffer, 1280, 720)
     
     window_class.style = win.CS_HREDRAW|win.CS_VREDRAW
     window_class.lpfnWndProc = main_window_callback
@@ -199,13 +196,10 @@ main :: proc() {
         }
         render_weird_gradient(global_back_buffer, x_offset, y_offset)
         device_context: win.HDC = win.GetDC(window)
-        client_rect: win.RECT
 
-        win.GetClientRect(window,  &client_rect)
-        window_width: i32 = client_rect.right - client_rect.left
-        window_height: i32 = client_rect.right - client_rect.left
-        win32_display_buffer_in_window(device_context, client_rect, 
-            &global_back_buffer, 0, 0, window_width, window_height)
+        dimension: Win32_Window_Dimension = win32_get_window_dimension(window)
+        win32_display_buffer_in_window(device_context, dimension.width, dimension.height, 
+            &global_back_buffer, 0, 0, dimension.width, dimension.height)
         win.ReleaseDC(window, device_context)
 
         x_offset = x_offset + 1
