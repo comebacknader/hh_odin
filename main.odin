@@ -26,18 +26,12 @@ Win32_Offscreen_Buffer:: struct {
 
 global_back_buffer: Win32_Offscreen_Buffer
 
-Win32_Window_Dimension :: struct {
-    width: i32,
-    height: i32 
-}
-
-win32_get_window_dimension :: proc(window: win.HWND) -> Win32_Window_Dimension {
-    result: Win32_Window_Dimension
+win32_get_window_dimension :: proc(window: win.HWND) -> (width, height: i32) {
     client_rect: win.RECT
     win.GetClientRect(window, &client_rect)
-    result.width = client_rect.right - client_rect.left
-    result.height = client_rect.bottom - client_rect.top
-    return result
+    width = client_rect.right - client_rect.left
+    height = client_rect.bottom - client_rect.top
+    return width, height 
 }
 
 render_weird_gradient :: proc(buffer: Win32_Offscreen_Buffer, blue_offset, green_offset: i32) {
@@ -139,9 +133,9 @@ main_window_callback :: proc "stdcall" (
             height: i32 = paint.rcPaint.bottom - paint.rcPaint.top
             width: i32 = paint.rcPaint.right - paint.rcPaint.left
             
-            dimension: Win32_Window_Dimension = win32_get_window_dimension(window)
+            dimension_width, dimension_height := win32_get_window_dimension(window)
 
-            win32_display_buffer_in_window(device_context, dimension.width, dimension.height, 
+            win32_display_buffer_in_window(device_context, dimension_width, dimension_height, 
                 &global_back_buffer,  x, y, width, height)
             win.EndPaint(window, &paint)
             break
@@ -197,9 +191,9 @@ main :: proc() {
         render_weird_gradient(global_back_buffer, x_offset, y_offset)
         device_context: win.HDC = win.GetDC(window)
 
-        dimension: Win32_Window_Dimension = win32_get_window_dimension(window)
-        win32_display_buffer_in_window(device_context, dimension.width, dimension.height, 
-            &global_back_buffer, 0, 0, dimension.width, dimension.height)
+        dimension_width, dimension_height := win32_get_window_dimension(window)
+        win32_display_buffer_in_window(device_context, dimension_width, dimension_height, 
+            &global_back_buffer, 0, 0, dimension_width, dimension_height)
         win.ReleaseDC(window, device_context)
 
         x_offset = x_offset + 1
